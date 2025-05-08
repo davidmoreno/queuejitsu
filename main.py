@@ -5,10 +5,27 @@ import uvicorn
 from fastapi import FastAPI
 import fastapi
 import yaml
+import tortoise
+from tortoise.contrib.fastapi import register_tortoise
+
+import migrations
+import models
+import settings
+
+async def app_lifespan(app: FastAPI):
+    """
+    Initialize the database connection.
+    """
+    await tortoise.Tortoise.init(
+        config=settings.TORTOISE_CONFIG,
+    )
+    yield
+    await tortoise.Tortoise.close_connections()
+    logger.info("Database connection closed.")
 
 rules = yaml.safe_load(open("rules.yaml", "r"))
 logger = logging.getLogger("uvicorn")
-app = FastAPI()
+app = FastAPI(lifespan=app_lifespan)
 
 
 @app.post("/")
@@ -18,6 +35,16 @@ async def push_queue(request: fastapi.Request, background_tasks: fastapi.Backgro
     """
     message = await request.json()
     logger.info(f"Received message: {message}")
+
+    await models.Event.create(
+        event=message.get("event"),
+        source_ip=request.client.host,
+        payload=message.get("payload"),
+        status_id=models.EventStatus.PENDING_ID,
+    )
+    logger.info(f"Message saved to database.")
+
+    return {"status": "queued"}
 
     event = message.get("event")
     payload = message.get("payload")

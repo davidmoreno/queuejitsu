@@ -1,14 +1,33 @@
 tick.coralbits.com:
-  - name: to localhost, every tick
-    url: "http://localhost:8000"
-    ordering: any # will retry only failing ones, so they might arrive out of order
+  consumers:
+    - id: to localhost, every tick
+      url: "http://localhost:8000"
+      delivery_order: any # will retry only failing ones, so they might arrive out of order. AKA best effort
 
-  - name: will fail
-    url: "http://localhost:9000"
-    ordering: inorder # if one fails, it blocks all the next ones
-    add_to_payload:
-      from_pushqueue: true
+    - id: will fail
+      url: "http://localhost:9000"
+      delivery_order: fifo # if one fails, it blocks all the next ones. AKA full ordering by endpoint
+      add_to_payload:
+        from_pushqueue: true
 
-  - name: logger
-    url: "http://localhost:8000/logger"
-    ordering: fullorder # all fullorders for the same server, will arrive in the full ordering of all those messages
+    - id: logger
+      url: "http://localhost:8000/logger"
+      delivery_order: fifo:group-A # all fifo inbetween the same group id. AKA full ordering by group
+
+logger:
+  auth:
+    bearer_token: test
+  consumers:
+    - id: to localhost 1
+      url: 
+        - http://127.0.0.1:8000/logger
+        - http://127.0.0.2:8000/logger
+        - http://127.0.0.3:8000/logger
+      add_to_payload:
+        message: to localhost {{url}}
+
+    - id: to localhost 4
+      url: http://127.0.0.4:8000/logger
+      add_to_payload:
+        message: to localhost 4
+      # no consumer group, it is sent always
