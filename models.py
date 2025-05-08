@@ -32,9 +32,9 @@ class Event(Model):
 class PendingDelivery(Model):
     id: int = fields.IntField(pk=True)
     event: Event = fields.ForeignKeyField("models.Event", related_name="pending_deliveries")
-    subscriptor: str = fields.CharField(max_length=255)
-    last_attempt: datetime
-    retry_timeout: datetime
-    retry_count: int
+    consumer: str = fields.CharField(max_length=255)
+    last_attempt: datetime = fields.DatetimeField(null=True)
+    retry_timeout: datetime = fields.DatetimeField(null=True)
+    retry_count: int = fields.IntField(default=0)
 
     

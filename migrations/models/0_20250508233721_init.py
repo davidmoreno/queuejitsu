@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS "event" (
 );
 CREATE TABLE IF NOT EXISTS "pendingdelivery" (
     "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-    "subscriptor" VARCHAR(255) NOT NULL,
+    "consumer" VARCHAR(255) NOT NULL,
     "event_id" INT NOT NULL REFERENCES "event" ("id") ON DELETE CASCADE
 );
 CREATE TABLE IF NOT EXISTS "aerich" (
