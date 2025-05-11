@@ -9,6 +9,7 @@ import fastapi
 import yaml
 import tortoise
 from tortoise.contrib.fastapi import register_tortoise
+from tortoise.expressions import Q
 
 import migrations
 import models
@@ -164,10 +165,185 @@ async def logger_endpoint(request: fastapi.Request):
     logger.info(f"Received log message: {message}")
     return {"status": "ok"}
 
+def serve(host="0.0.0.0", port=8000, log_level="info", reload=True):
+    """
+    Run the server.
+    """
+    # Set up logging
+    logging.basicConfig(
+        level=getattr(logging, log_level.upper()),
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
+
+    # Run the server
+    uvicorn.run(
+        "main:app",
+        host=host,
+        port=port,
+        log_level=log_level,
+        reload=reload
+    )
+
+
+async def dispatch():
+    """
+    Dispatch pending events by sending them to their respective consumers.
+    """
+    logger.info("Dispatching pending events")
+
+    await tortoise.Tortoise.init(config=settings.TORTOISE_CONFIG)
+
+    # Get all pending deliveries that are ready to be sent (retry_timeout is None or in the past)
+    pending_deliveries = await models.PendingDelivery.filter(
+        Q(retry_timeout=None) |
+        Q(retry_timeout__lte=datetime.now())
+    )
+
+    logger.info(f"Found {len(pending_deliveries)} deliveries to dispatch")
+
+    for pending_delivery in pending_deliveries:
+        await delivery(pending_delivery.id, background_tasks=None)
+
+    await tortoise.Tortoise.close_connections()
+    logger.info("Database connection closed")
+
+
+async def list_events(event_type=None, consumer=None, output_format='yaml'):
+    """
+    Show the list of events to send in YAML-like or JSON format.
+
+    Args:
+        event_type: Filter by event type
+        consumer: Filter by consumer
+        output_format: Output format ('yaml' or 'json')
+    """
+    logger.info("Listing events")
+
+    await tortoise.Tortoise.init(config=settings.TORTOISE_CONFIG)
+
+    # Start building the query
+    query = models.PendingDelivery.all().prefetch_related('event')
+
+    # Apply filters if provided
+    if event_type:
+        query = query.filter(event__event=event_type)
+    if consumer:
+        query = query.filter(consumer=consumer)
+
+    # Execute the query
+    pending_deliveries = await query
+
+    if output_format == 'json':
+        import json
+
+        # Create a list to store the results
+        results = []
+        for pd in pending_deliveries:
+            results.append({
+                'id': pd.id,
+                'event': {
+                    'id': pd.event.id,
+                    'type': pd.event.event,
+                    'payload': pd.event.payload,
+                },
+                'consumer': pd.consumer,
+                'retry_count': pd.retry_count,
+                'next_attempt': str(pd.retry_timeout) if pd.retry_timeout else 'ASAP',
+                'last_attempt': str(pd.last_attempt) if pd.last_attempt else 'Never',
+            })
+        print(json.dumps(results, indent=2))
+    else:
+        print(f"pending_deliveries: # total: {len(pending_deliveries)}")
+        for pd in pending_deliveries:
+            event = pd.event
+            print(f"  - id: {pd.id}")
+            print(f"    event:")
+            print(f"      id: {event.id}")
+            print(f"      type: {event.event}")
+            # Format payload as YAML with proper indentation
+            if event.payload:
+                print(f"      payload:")
+                for line in str(event.payload).splitlines():
+                    print(f"        {line}")
+            else:
+                print(f"      payload: null")
+            print(f"    consumer: {pd.consumer}")
+            print(f"    retry_count: {pd.retry_count}")
+            print(f"    next_attempt: {str(pd.retry_timeout) if pd.retry_timeout else 'ASAP'}")
+            print(f"    last_attempt: {str(pd.last_attempt) if pd.last_attempt else 'Never'}")
+
+    await tortoise.Tortoise.close_connections()
+    logger.info("Database connection closed")
+
+
+def parse_args():
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Push queue manager")
+    subparsers = parser.add_subparsers(dest="command", help="Commands", required=True)
+
+    # Serve command
+    serve_parser = subparsers.add_parser("serve", help="Run the server")
+    serve_parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
+    serve_parser.add_argument("--port", type=int, default=8000, help="Port to bind to")
+    serve_parser.add_argument("--log-level", default="info", help="Logging level")
+    serve_parser.add_argument("--reload", action="store_true", help="Enable auto-reload")
+
+    # Dispatch command
+    dispatch_parser = subparsers.add_parser("dispatch", help="Dispatch pending events to consumers")
+
+    # List command
+    list_parser = subparsers.add_parser("list", help="List events")
+    list_parser.add_argument("--event-type", help="Filter by event type")
+    list_parser.add_argument("--consumer", help="Filter by consumer")
+    list_parser.add_argument("--output-format", choices=["yaml", "json"], default="yaml", help="Output format")
+
+    return parser.parse_args()
+
+
+
+
+def dispatch_command():
+    """
+    Run the dispatch command handler.
+    """
+    import asyncio
+    asyncio.run(dispatch())
+
+
+def list_command(args):
+    """
+    List events command handler.
+    """
+    import asyncio
+    print(f"# Filtering: event_type={args.event_type or 'all'}, consumer={args.consumer or 'all'}")
+    asyncio.run(list_events(event_type=args.event_type, consumer=args.consumer, output_format=args.output_format))
+
 
 def main():
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, log_level="info", reload=True)
+    args = parse_args()
+
+    # Execute the appropriate command based on the subcommand
+    if args.command == "serve":
+        serve(
+            host=args.host,
+            port=args.port,
+            log_level=args.log_level,
+            reload=args.reload
+        )
+        return 0
+    elif args.command == "dispatch":
+        dispatch_command()
+        return 0
+    elif args.command == "list":
+        list_command(args)
+        return 0
+    else:
+        # This should never happen due to required=True in subparsers
+        print(f"Unknown command: {args.command}")
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    sys.exit(main())
