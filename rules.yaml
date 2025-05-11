@@ -8,7 +8,7 @@ tick.coralbits.com:
       url: "http://localhost:9000"
       delivery_order: fifo # if one fails, it blocks all the next ones. AKA full ordering by endpoint
       add_to_payload:
-        from_pushqueue: true
+        from_queuejitsu: true
 
     - id: logger
       url: "http://localhost:8000/logger"

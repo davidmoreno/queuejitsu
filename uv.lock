@@ -189,7 +189,7 @@ wheels = [
 ]
 
 [[package]]
-name = "pushqueue"
+name = "queuejitsu"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

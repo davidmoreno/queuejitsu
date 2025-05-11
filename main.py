@@ -279,7 +279,7 @@ async def list_events(event_type=None, consumer=None, output_format='yaml'):
 def parse_args():
     import argparse
 
-    parser = argparse.ArgumentParser(description="Push queue manager")
+    parser = argparse.ArgumentParser(description="QueueJitsu manager")
     subparsers = parser.add_subparsers(dest="command", help="Commands", required=True)
 
     # Serve command
